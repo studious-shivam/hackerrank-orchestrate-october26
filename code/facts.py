@@ -20,8 +20,11 @@ def derive_state(f):
         f["state"] = "ACTIVE" if x["restore_allowed"] in TRUE else "BLOCKED"
     elif t == "DATA_FLOW" and "enabled" in x:
         f["state"] = "ACTIVE" if x["enabled"] in TRUE else "DISABLED"
-    elif t in ("ANALYTICS_PROFILE", "SUPPORT_MESSAGE"):
-        f["state"] = "IDENTIFIABLE" if _has_identifier(f) else ("ANONYMIZED" if t == "ANALYTICS_PROFILE" else "REDACTED")
+    elif t == "SUPPORT_MESSAGE":
+        direct = any([f["name"], f["email"], f["phone"], f["email_hash"], f["text_emails"]])
+        f["state"] = "IDENTIFIABLE" if direct else "REDACTED"
+    elif t == "ANALYTICS_PROFILE":
+        f["state"] = "IDENTIFIABLE" if _has_identifier(f) else "ANONYMIZED"
     else:
         f["state"] = "PRESENT"
     return f
