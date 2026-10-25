@@ -2,6 +2,7 @@
 from evidence import DATA, load_all_facts as static_facts, read_csv
 from logfacts import facts_from_log
 from docfacts import facts_from_pdf
+from imgfacts import facts_from_images
 
 TRUE = (True, 1, "1", "true", "True")
 
@@ -33,6 +34,8 @@ def load_all_facts():
             facts += facts_from_log(DATA / ef["file_path"], ef["file_id"])
         elif ef["file_path"].endswith(".pdf"):
             facts += facts_from_pdf(DATA / ef["file_path"], ef["file_id"], ef["captured_at"])
+        elif ef["file_path"].endswith(".png"):
+            facts += facts_from_images(ef["file_id"], ef["captured_at"])
     return [derive_state(f) for f in facts]
 
 
