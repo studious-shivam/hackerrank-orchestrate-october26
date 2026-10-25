@@ -1,6 +1,7 @@
 """All evidence -> one flat fact list (SQL + JSON + text + logs), with states derived."""
 from evidence import DATA, load_all_facts as static_facts, read_csv
 from logfacts import facts_from_log
+from docfacts import facts_from_pdf
 
 TRUE = (True, 1, "1", "true", "True")
 
@@ -30,6 +31,8 @@ def load_all_facts():
     for ef in read_csv("evidence_files.csv"):
         if ef["file_path"].endswith(".log"):
             facts += facts_from_log(DATA / ef["file_path"], ef["file_id"])
+        elif ef["file_path"].endswith(".pdf"):
+            facts += facts_from_pdf(DATA / ef["file_path"], ef["file_id"], ef["captured_at"])
     return [derive_state(f) for f in facts]
 
 
