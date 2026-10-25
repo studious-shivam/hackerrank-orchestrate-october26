@@ -38,7 +38,7 @@ EMAIL_RE = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}")
 # Columns that hold each kind of identifier, depending on the table
 NAME_COLS = ("full_name", "display_name", "requester_name", "name")
 EMAIL_COLS = ("email", "requester_email", "owner_email", "customer_email",
-              "subject_selector", "uploaded_by")
+              "subject_selector", "uploaded_by", "lookup_value")
 PHONE_COLS = ("phone", "requester_phone", "owner_phone")
 REF_COLS = ("customer_reference", "user_id", "subject_reference")
 
@@ -55,12 +55,13 @@ def _flatten(row):
     return row
 
 
-def _fact(file_id, captured_at, container, system, resource_id, rtype, row):
+def _fact(file_id, captured_at, container, system, resource_id, rtype, row, state=None):
     row = _flatten(row)
+    state = {"FOUND": "PRESENT", "NOT_FOUND": "ABSENT"}.get(state, state)
     f = {
         "file_id": file_id, "captured_at": captured_at, "container": container,
         "system_id": system, "resource_id": resource_id, "record_type": rtype,
-        "user_ref": None, "name": None, "email": None, "phone": None,
+        "state": state, "user_ref": None, "name": None, "email": None, "phone": None,
         "email_hash": _clean(row.get("email_hash")), "extra": {},
     }
     for c in NAME_COLS:
@@ -105,17 +106,109 @@ def facts_from_sql(path, file_id, captured_at):
     return out
 
 
+# ---------------------------------------------------------------- JSON / TXT
+SYSTEM_OF_COLLECTION = {
+    "customer_profiles": "account_service",
+    "customer_analytics_reports": "analytics_platform",
+    "customer_search_documents": "search_service",
+    "support_conversations": "support_platform",
+    "ticket_attachments": "support_platform",
+    "customer_export_jobs": "export_service",
+    "connector_configurations": "integration_service",
+    "backup_catalog": "backup_service",
+    "security_audit_events": "security_service",
+    "retained_order_records": "legal_service",
+    "deleted_customer_references": "identity_service",
+}
+# service_exports section -> (system, record_type)
+SECTION_MAP = {
+    ("account_service", "profile_lookups"): "USER_PROFILE",
+    ("analytics_platform", "profiles"): "ANALYTICS_PROFILE",
+    ("backup_service", "restore_entries"): "BACKUP_ARCHIVE",
+    ("export_service", "exports"): "USER_EXPORT",
+    ("integration_service", "connectors"): "DATA_FLOW",
+    ("security_service", "audit_records"): "SECURITY_AUDIT_LOG",
+    ("support_platform", "tickets"): "SUPPORT_MESSAGE",
+}
+
+
+def _from_collection(file_id, ts, system, collection, records):
+    out = []
+    for r in records:
+        if "result" in r and "record_type" in r:          # operational_record_history style
+            out.append(_fact(file_id, r.get("recorded_at", ts), collection, r["system"],
+                             r["resource_id"], r["record_type"], r, r["result"]))
+        else:
+            rtype = COLLECTION_MAP.get(collection, collection)
+            out.append(_fact(file_id, ts, collection, system, r["resource_id"], rtype, r))
+    return out
+
+
+def facts_from_json(path, file_id, captured_at):
+    d = json.loads(Path(path).read_text(encoding="utf-8"))
+    out = []
+    if "service_exports" in d:                                   # layout D
+        for system, sections in d["service_exports"].items():
+            for section, rows in sections.items():
+                if section == "index_queries":
+                    for q in rows:
+                        for doc in q["hits"]["documents"]:
+                            out.append(_fact(file_id, q["observed_at"], section, system,
+                                             doc["resource_id"], "SEARCH_INDEX_ENTRY", doc, "PRESENT"))
+                    continue
+                rtype = SECTION_MAP[(system, section)]
+                for r in rows:
+                    row = dict(r)
+                    prof = row.pop("profile", None)
+                    if isinstance(prof, dict):
+                        row.update(prof)
+                    state = "PRESENT"
+                    if "status_code" in r:
+                        state = "PRESENT" if r["status_code"] == 200 else "ABSENT"
+                    out.append(_fact(file_id, r.get("observed_at", captured_at), section,
+                                     system, r["resource_id"], rtype, row, state))
+    elif "snapshots" in d:                                       # layout C
+        for snap in d["snapshots"]:
+            out += _from_collection(file_id, snap["captured_at"], snap["data_store"],
+                                    snap["collection"], snap["records"])
+    elif "collection" in d:                                      # layout B
+        system = SYSTEM_OF_COLLECTION.get(d["collection"], d.get("source"))
+        out += _from_collection(file_id, d["captured_at"], system, d["collection"], d["records"])
+    elif "records" in d:                                         # layout A (flat, explicit result)
+        for r in d["records"]:
+            row = dict(r)
+            out.append(_fact(file_id, r["recorded_at"], "records", r["system"], r["resource_id"],
+                             r["record_type"], row, r["result"]))
+    return out
+
+
+def facts_from_txt(path, file_id, captured_at):
+    out = []
+    for line in Path(path).read_text(encoding="utf-8").splitlines():
+        if not line.startswith("- "):
+            continue
+        ts, system, rid, rtype, result, subject = [p.strip() for p in line[2:].split("|")]
+        row = {"subject_reference": subject if subject != "no direct identifier" else None}
+        out.append(_fact(file_id, ts, "handover", system, rid, rtype, row, result))
+    return out
+
+
 def load_all_facts():
     facts = []
     for ef in read_csv("evidence_files.csv"):
         p = DATA / ef["file_path"]
         if p.suffix == ".sql":
             facts += facts_from_sql(p, ef["file_id"], ef["captured_at"])
+        elif p.suffix == ".json":
+            facts += facts_from_json(p, ef["file_id"], ef["captured_at"])
+        elif p.suffix == ".txt":
+            facts += facts_from_txt(p, ef["file_id"], ef["captured_at"])
     return facts
 
 
 if __name__ == "__main__":
     import collections
     facts = load_all_facts()
-    print("SQL facts:", len(facts))
+    print("facts:", len(facts))
+    print(collections.Counter(f["state"] for f in facts))
     print(collections.Counter((f["system_id"], f["record_type"]) for f in facts).most_common())
