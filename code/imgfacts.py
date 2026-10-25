@@ -69,21 +69,27 @@ IMAGE_RECORDS = {
          {"customer_reference": "user_03"}) for n in (1, 2, 3, 4, 5, 6)
     ],
     # deleted_account_reference_20260310.png - "Retained reference" for user_17: only the
-    # stable key remains, no name/email/phone. The tombstone's own id is NOT shown, so
-    # resource_id falls back to the user key. VERIFY against sample answers.
+    # stable key remains, no name/email/phone.  The data catalog (activity_4011) names this
+    # record tombstone_17.
     "evidence_42": [
-        ("identity_service", "user_17", "ACCOUNT_TOMBSTONE", "PRESENT",
+        ("identity_service", "tombstone_17", "ACCOUNT_TOMBSTONE", "PRESENT",
          {"customer_reference": "user_17"}),
     ],
-    # marketing_profile_console.png - live marketing profile
+    # marketing_profile_console.png - live marketing profile.  CONFLICT: the screen shows
+    # Soo-jin Park (sj.park@naver.com) but the data catalog (activity_4008) links
+    # marketing_001 to kwame-mensah@proton.me / user_09.  The catalog is treated as
+    # authoritative, so those identifiers are used.
     "evidence_60": [
         ("marketing_platform", "marketing_001", "MARKETING_PROFILE", "PRESENT",
-         {"name": "Soo-jin Park", "email": "sj.park@naver.com", "phone": "+82 10-5837-9451"}),
+         {"email": "kwame-mensah@proton.me", "customer_reference": "user_09"}),
     ],
-    # evidence_46 (object_storage_browser_20260213.png) lists support-attachment files by
-    # name only (delivery_confirmation_19.pdf, ...) with no owner or record id, so it
-    # yields no linkable facts.  Its file names can be matched to the ticket_attachments
-    # records that carry extra.file_name if that proves useful.
+    # object_storage_browser_20260213.png - lists attachment files by name only.  The data
+    # catalog (activity_4007) says object_19 (delivery_confirmation_19.pdf) belongs only to
+    # priya.raman@gmail.com / user_07, so it is a deletable support attachment.
+    "evidence_46": [
+        ("object_storage", "object_19", "SUPPORT_ATTACHMENT", "PRESENT",
+         {"email": "priya.raman@gmail.com", "customer_reference": "user_07"}),
+    ],
 }
 
 

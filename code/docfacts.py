@@ -85,10 +85,17 @@ def _legal_register(text, file_id, captured_at):
 
 
 def _customer_statement(text, file_id, captured_at):
-    """Order statement.  It names the customer but has no record id, so it yields
-    no deletable record.  Kept only so the file is recognised (and can be used as
-    identity evidence later)."""
-    return []
+    """Customer statement 'NST-2026-0718-1842'.  The data catalog (activity_4009) records it
+    as export_1842, a user export owned by the named customer."""
+    m = re.search(r"NST-\d{4}-\d{4}-(\d+)", text)
+    email = EMAIL_RE.search(text)
+    user = USER_RE.search(text)
+    if not m:
+        return []
+    row = {"email": email.group(0) if email else None,
+           "customer_reference": user.group(0) if user else None}
+    return [_fact(file_id, captured_at, "pdf:customer_statement", "export_service",
+                  "export_" + m.group(1), "USER_EXPORT", row, "PRESENT")]
 
 
 PARSERS = (
